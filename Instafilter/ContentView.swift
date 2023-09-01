@@ -19,30 +19,16 @@ struct ContentView: View {
     @State private var showingFilterSheet = false
     @State private var showingSaveStatusAlert = false
     
-    @State private var filterIntensity = 0.5
+    @State private var filterIntensity = 0.1
+    @State private var filterRadius = 0.1
+    @State private var filterRadiusMultiplier = 500.0
+    @State private var filterAngle = 1.0
     @State private var currentFilter: CIFilter = CIFilter.sepiaTone()
     let context = CIContext()
     
-    var body: some View {
-        NavigationView {
-            VStack {
-                ZStack {
-                    Rectangle()
-                        .fill(.secondary.opacity(image == nil ? 1: 0))
-                    
-                    Text("Tap to select a picture")
-                        .foregroundColor(.white)
-                        .font(.headline)
-                    
-                    image?
-                        .resizable()
-                        .scaledToFit()
-                }
-                .onTapGesture {
-                    showingPickerSheet = true
-                }
-                .cornerRadius(10)
-                
+    var sliders: some View {
+        VStack(spacing: 10) {
+            if currentFilter.inputKeys.contains(kCIInputIntensityKey) || currentFilter.inputKeys.contains(kCIInputScaleKey) {
                 HStack {
                     Text("Intensity")
                     Slider(value: $filterIntensity)
@@ -50,17 +36,88 @@ struct ContentView: View {
                             applyProcessing()
                         }
                 }
-                .padding(.vertical)
+            }
+            
+            if currentFilter.inputKeys.contains(kCIInputRadiusKey) {
+                HStack {
+                    Text("Radius")
+                    Slider(value: $filterRadius)
+                        .onChange(of: filterRadius) { _ in
+                            applyProcessing()
+                        }
+                }
                 
                 HStack {
-                    Button("Change Filter") {
-                        showingFilterSheet = true
-                    }
-                    
-                    Spacer()
-                    
-                    Button("Save", action: save)
+                    Text("Radius Multiplier")
+                    Slider(value: $filterRadiusMultiplier, in: 1...2000)
+                        .onChange(of: filterRadiusMultiplier) { _ in
+                            applyProcessing()
+                        }
                 }
+            }
+            
+            if currentFilter.inputKeys.contains(kCIInputAngleKey) {
+                HStack {
+                    Text("Angle")
+                    Slider(value: $filterAngle, in: 0...360)
+                        .onChange(of: filterAngle) { _ in
+                            applyProcessing()
+                        }
+                }
+            }
+        }
+        .padding(.vertical)
+    }
+    
+    var actionButtons: some View {
+        HStack {
+            Button("Change Filter") {
+                showingFilterSheet = true
+            }
+            
+            Spacer()
+            
+            Button("Save", action: save)
+                .disabled(image == nil)
+        }
+    }
+    
+    var canvas: some View {
+        ZStack {
+            Rectangle()
+                .fill(.secondary.opacity(image == nil ? 1: 0.4))
+            
+            if image == nil {
+                Text("Tap to select a picture")
+                    .foregroundColor(.white)
+                    .font(.headline)
+            }
+            
+            image?
+                .resizable()
+                .scaledToFit()
+        }
+        .onTapGesture {
+            showingPickerSheet = true
+        }
+        .cornerRadius(10)
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                canvas
+                    .contextMenu {
+                        Button {
+                            save()
+                        } label: {
+                            Label("Save Image", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                
+                sliders
+                
+                actionButtons
             }
             .padding([.horizontal, .bottom])
             .navigationTitle("Instafilter")
@@ -71,13 +128,18 @@ struct ContentView: View {
                 ImagePicker(image: $inputImage)
             }
             .confirmationDialog("Select a filter", isPresented: $showingFilterSheet) {
-                Button("Crytallize") { setFilter(CIFilter.crystallize()) }
-                Button("Edges") { setFilter(CIFilter.edges()) }
-                Button("Gaussian Blur") { setFilter(CIFilter.gaussianBlur()) }
-                Button("Pixellate") { setFilter(CIFilter.pixellate()) }
-                Button("Sepia Tone") { setFilter(CIFilter.sepiaTone()) }
-                Button("Unsharp Mask") { setFilter(CIFilter.unsharpMask()) }
-                Button("Vignette") { setFilter(CIFilter.vignette()) }
+                Group {
+                    Button("Crystallize") { setFilter(CIFilter.crystallize()) }
+                    Button("Edges") { setFilter(CIFilter.edges()) }
+                    Button("Gaussian Blur") { setFilter(CIFilter.gaussianBlur()) }
+                    Button("Pixellate") { setFilter(CIFilter.pixellate()) }
+                    Button("Sepia Tone") { setFilter(CIFilter.sepiaTone()) }
+                    Button("Unsharp Mask") { setFilter(CIFilter.unsharpMask()) }
+                    Button("Vignette") { setFilter(CIFilter.vignette()) }
+                    Button("Gabor Gradient") { setFilter(CIFilter.gaborGradients()) }
+                    Button("Comic") { setFilter(CIFilter.comicEffect()) }
+                    Button("Twirl Distortion") { setFilter(CIFilter.twirlDistortion()) }
+                }
                 
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -106,10 +168,16 @@ struct ContentView: View {
             currentFilter.setValue(filterIntensity, forKey: kCIInputIntensityKey)
         }
         if inputKeys.contains(kCIInputRadiusKey) {
-            currentFilter.setValue(filterIntensity * 200, forKey: kCIInputRadiusKey)
+            currentFilter.setValue(filterRadius * filterRadiusMultiplier, forKey: kCIInputRadiusKey)
         }
         if inputKeys.contains(kCIInputScaleKey) {
-            currentFilter.setValue(filterIntensity * 10, forKey: kCIInputScaleKey)
+            currentFilter.setValue(filterIntensity * 200, forKey: kCIInputScaleKey)
+        }
+        if inputKeys.contains(kCIInputCenterKey) {
+            currentFilter.setValue(CIVector(cgPoint: CGPoint(x: (inputImage?.size.width ?? 100) / 2, y: (inputImage?.size.height ?? 100) / 2)), forKey: kCIInputCenterKey)
+        }
+        if inputKeys.contains(kCIInputAngleKey) {
+            currentFilter.setValue(filterAngle, forKey: kCIInputAngleKey)
         }
         
         guard let outputImage = currentFilter.outputImage else { return }
@@ -122,8 +190,10 @@ struct ContentView: View {
     }
     
     func setFilter(_ filter: CIFilter) {
-        currentFilter = filter
-        loadImage()
+        withAnimation {
+            currentFilter = filter
+            loadImage()
+        }
     }
     
     func save() {
